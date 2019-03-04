@@ -34,12 +34,12 @@ TAG = os.environ.get(
     "DRONE_BUILD_NUMBER",
     None)
 if TAG is None:
-    TAG = "latest"
+    TAG = "test"
 else:
     TAG = "DRONE-" + TAG
 DEFAULT_IMAGE = os.environ.get(
     "DEFAULT_IMAGE",
-    "casperlabs-integration-testing:{}".format(TAG))
+    "casperlabs/node:{}".format(TAG))
 
 casperlabsnode_binary = '/opt/docker/bin/bootstrap'
 casperlabsnode_directory = "/root/.casperlabs"
@@ -234,11 +234,10 @@ class Node:
         try:
             logging.info("COMMAND {}".format(command))
             output = self.docker_client.containers.run(
-                image="casperlabs/client:{}".format(TAG),
+                image="casperlabs/client:latest",
                 auto_remove=True,
-                name="client-{}-{}".format(
+                name="client-{}-latest".format(
                     ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(5)),
-                    TAG
                 ),
                 command=command,
                 network=self.network,
