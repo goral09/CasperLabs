@@ -41,6 +41,8 @@ DEFAULT_IMAGE = os.environ.get(
     "DEFAULT_IMAGE",
     "casperlabs/node:{}".format(TAG))
 
+DEFAULT_ENGINE_IMAGE = "casperlabs/execution-engine:test"
+
 casperlabsnode_binary = '/opt/docker/bin/bootstrap'
 casperlabsnode_directory = "/root/.casperlabs"
 casperlabsnode_deploy_dir = "{}/deploy".format(casperlabsnode_directory)
@@ -241,7 +243,8 @@ class Node:
                 ),
                 command=command,
                 network=self.network,
-                volumes=volumes).decode('utf-8')
+                volumes=volumes
+            ).decode('utf-8')
             logging.debug("OUTPUT {}".format(output))
             return output
         except ContainerError as err:
@@ -363,6 +366,7 @@ def make_node(
 
     hosts_allow_file = make_tempfile("hosts-allow-{}".format(name), hosts_allow_file_content)
     hosts_deny_file = make_tempfile("hosts-deny-{}".format(name), "ALL: ALL")
+    socket_volume = make_tempfile("socketvolume", "")
 
     # container_command_options['--server-data-dir'] = casperlabsnode_directory
     # container_command_options['--casper-bonds-file'] = casperlabsnode_bonds_file
@@ -381,6 +385,7 @@ def make_node(
         "{}:/etc/hosts.deny".format(hosts_deny_file),
         "{}:{}".format(bonds_file, casperlabsnode_bonds_file),
         "{}:{}".format(deploy_dir, casperlabsnode_deploy_dir),
+        "{}:/opt/docker/.casperlabs/sockets".format(socket_volume)
     ]
 
     container = docker_client.containers.run(
@@ -480,6 +485,32 @@ def make_bootstrap_node(
     return container
 
 
+def make_execution_engine(
+    *,
+    docker_client: "DockerClient",
+    network: str,
+    command_timeout: int,
+    image: str = DEFAULT_ENGINE_IMAGE,
+    container_name: Optional[str] = None):
+    name = "{node_name}-engine-{network_name}-{random}".format(
+        node_name='bootstrap' if container_name is None else container_name,
+        network_name=network,
+        random = random_string(5)
+    )
+    volumes = [
+        "socketvolume:/opt/docker/.casperlabs/sockets"
+    ]
+    container = docker_client.containers.run(
+        image,
+        name=name,
+        user='root',
+        detach=True,
+        network=network,
+        volumes=volumes,
+        hostname=name,
+    )
+    return container
+
 def make_peer_name(network: str, i: Union[int, str]) -> str:
     return "peer{i}.{network}".format(i=i, network=network)
 
@@ -562,13 +593,14 @@ def create_peer_nodes(
     allowed_peers: Optional[List[str]] = None,
     image: str = DEFAULT_IMAGE,
     mem_limit: Optional[str] = None,
-) -> List[Node]:
+):
     assert len(set(key_pairs)) == len(key_pairs), "There shouldn't be any duplicates in the key pairs"
 
     if allowed_peers is None:
         allowed_peers = [bootstrap.name] + [make_peer_name(network, i) for i in range(0, len(key_pairs))]
 
     result = []
+    execution_engines = []
     try:
         for i, key_pair in enumerate(key_pairs):
             peer_node = make_peer(
@@ -584,11 +616,19 @@ def create_peer_nodes(
                 mem_limit=mem_limit if mem_limit is not None else '4G',
             )
             result.append(peer_node)
+            engine = make_execution_engine(
+                docker_client=docker_client,
+                network=network,
+                command_timeout=command_timeout,
+            )
+            execution_engines.append(engine)
     except:
         for node in result:
             node.cleanup()
+        for _engine in execution_engines:
+            _engine.remove(force=True, v=True)
         raise
-    return result
+    return result, execution_engines
 
 
 @contextlib.contextmanager
@@ -614,10 +654,16 @@ def started_bootstrap_node(*, context: TestingContext, network, container_name: 
         container_name=container_name,
         mount_dir=mount_dir,
     )
+    engine = make_execution_engine(
+        docker_client=context.docker,
+        network=network,
+        command_timeout=context.command_timeout,
+    )
     try:
         wait_for_node_started(bootstrap_node, context.node_startup_timeout)
         yield bootstrap_node
     finally:
+        engine.remove(force=True, v=True)
         bootstrap_node.cleanup()
 
 

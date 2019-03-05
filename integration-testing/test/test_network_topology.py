@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 @contextlib.contextmanager
 def start_network(*, context: TestingContext, bootstrap: 'Node', allowed_peers=None) -> Generator[Network, None, None]:
-    peers = create_peer_nodes(
+    peers, engines = create_peer_nodes(
         docker_client=context.docker,
         bootstrap=bootstrap,
         network=bootstrap.network,
@@ -41,6 +41,8 @@ def start_network(*, context: TestingContext, bootstrap: 'Node', allowed_peers=N
     finally:
         for peer in peers:
             peer.cleanup()
+        for engine in engines:
+            engine.remove(force=True, v=True)
 
 
 @contextlib.contextmanager
