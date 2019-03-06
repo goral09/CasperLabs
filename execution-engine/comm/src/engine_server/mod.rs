@@ -89,7 +89,8 @@ impl<R: DbReader, H: History<R>> ipc_grpc::ExecutionEngineService for EngineStat
         // the same prestate and all of them would fail.
         // Iterator (Result<_, _> + collect()) will short circuit the execution
         // when run_deploy returns Err.
-        let deploys_result: Result<Vec<DeployResult>, RootNotFound> = deploys
+        let deploys_result: Result<Vec<DeployResult>, RootNotFound> = p
+            .get_deploys()
             .iter()
             .map(|deploy| {
                 let module_bytes = &deploy.session_code;
@@ -115,15 +116,17 @@ impl<R: DbReader, H: History<R>> ipc_grpc::ExecutionEngineService for EngineStat
                 .map_err(Into::into)
             })
             .collect();
-        let mut exec_response = ipc::ExecResponse::new();
+
         match deploys_result {
             Ok(deploy_results) => {
+                let mut exec_response = ipc::ExecResponse::new();
                 let mut exec_result = ipc::ExecResult::new();
                 exec_result.set_deploy_results(protobuf::RepeatedField::from_vec(deploy_results));
                 exec_response.set_success(exec_result);
                 grpc::SingleResponse::completed(exec_response)
             }
             Err(error) => {
+                let mut exec_response = ipc::ExecResponse::new();
                 exec_response.set_missing_parent(error);
                 grpc::SingleResponse::completed(exec_response)
             }
