@@ -9,7 +9,7 @@ use shared::newtypes::Blake2bHash;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use storage::gs::{trackingcopy::QueryResult, DbReader};
-use storage::history::{self, *};
+use storage::history::*;
 use storage::transform::Transform;
 use wasm_prep::{Preprocessor, WasmiPreprocessor};
 
@@ -119,7 +119,8 @@ impl<R: DbReader, H: History<R>> ipc_grpc::ExecutionEngineService for EngineStat
                 grpc::SingleResponse::completed(res)
             }
             Ok(effects) => {
-                let result = apply_effect_result_to_ipc(self.apply_effect(prestate_hash, effects));
+                let result =
+                    grpc_response_from_commit_result(self.apply_effect(prestate_hash, effects));
                 grpc::SingleResponse::completed(result)
             }
         }
@@ -165,37 +166,6 @@ fn run_deploys<A, R: DbReader, H: History<R>, E: Executor<A>, P: Preprocessor<A>
                 .map_err(Into::into)
         })
         .collect()
-}
-
-fn apply_effect_result_to_ipc(
-    input: Result<storage::history::CommitResult, storage::error::RootNotFound>,
-) -> ipc::CommitResponse {
-    match input {
-        Err(storage::error::RootNotFound(missing_root_hash)) => {
-            let mut err = ipc::RootNotFound::new();
-            let mut tmp_res = ipc::CommitResponse::new();
-            err.set_hash(missing_root_hash.to_vec());
-            tmp_res.set_missing_prestate(err);
-            tmp_res
-        }
-        Ok(history::CommitResult::Success(post_state_hash)) => {
-            println!("Effects applied. New state hash is: {:?}", post_state_hash);
-            let mut commit_result = ipc::CommitResult::new();
-            let mut tmp_res = ipc::CommitResponse::new();
-            commit_result.set_poststate_hash(post_state_hash.to_vec());
-            tmp_res.set_success(commit_result);
-            tmp_res
-        }
-        // TODO(mateusz.gorski): We should be more specific about errors here.
-        Ok(history::CommitResult::Failure(storage_error)) => {
-            println!("Error {:?} when applying effects", storage_error);
-            let mut err = ipc::PostEffectsError::new();
-            let mut tmp_res = ipc::CommitResponse::new();
-            err.set_message(format!("{:?}", storage_error));
-            tmp_res.set_failed_transform(err);
-            tmp_res
-        }
-    }
 }
 
 // Helper method which returns single DeployResult that is set to be a WasmError.

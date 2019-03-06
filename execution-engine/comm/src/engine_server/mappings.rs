@@ -5,7 +5,7 @@ use execution_engine::engine::{Error as EngineError, ExecutionResult};
 use execution_engine::execution::Error as ExecutionError;
 use ipc;
 use storage::error::{Error::*, RootNotFound};
-use storage::{gs, op, transform};
+use storage::{gs, history, op, transform};
 
 /// Helper method for turning instances of Value into Transform::Write.
 fn transform_write(v: common::value::Value) -> Result<transform::Transform, ParsingError> {
@@ -394,6 +394,37 @@ impl From<ExecutionResult> for ipc::DeployResult {
                     },
                 }
             }
+        }
+    }
+}
+
+pub fn grpc_response_from_commit_result(
+    input: Result<storage::history::CommitResult, storage::error::RootNotFound>,
+) -> ipc::CommitResponse {
+    match input {
+        Err(storage::error::RootNotFound(missing_root_hash)) => {
+            let mut err = ipc::RootNotFound::new();
+            let mut tmp_res = ipc::CommitResponse::new();
+            err.set_hash(missing_root_hash.to_vec());
+            tmp_res.set_missing_prestate(err);
+            tmp_res
+        }
+        Ok(history::CommitResult::Success(post_state_hash)) => {
+            println!("Effects applied. New state hash is: {:?}", post_state_hash);
+            let mut commit_result = ipc::CommitResult::new();
+            let mut tmp_res = ipc::CommitResponse::new();
+            commit_result.set_poststate_hash(post_state_hash.to_vec());
+            tmp_res.set_success(commit_result);
+            tmp_res
+        }
+        // TODO(mateusz.gorski): We should be more specific about errors here.
+        Ok(history::CommitResult::Failure(storage_error)) => {
+            println!("Error {:?} when applying effects", storage_error);
+            let mut err = ipc::PostEffectsError::new();
+            let mut tmp_res = ipc::CommitResponse::new();
+            err.set_message(format!("{:?}", storage_error));
+            tmp_res.set_failed_transform(err);
+            tmp_res
         }
     }
 }
