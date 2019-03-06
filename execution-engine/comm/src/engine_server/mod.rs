@@ -2,7 +2,7 @@ use std::marker::{Send, Sync};
 
 use common::key::Key;
 use execution_engine::engine::EngineState;
-use execution_engine::execution::{Executor, WasmiExecutor};
+use execution_engine::execution::WasmiExecutor;
 use ipc::*;
 use ipc_grpc::ExecutionEngineService;
 use shared::newtypes::Blake2bHash;
@@ -11,7 +11,7 @@ use std::convert::TryInto;
 use storage::gs::{trackingcopy::QueryResult, DbReader};
 use storage::history::*;
 use storage::transform::Transform;
-use wasm_prep::{Preprocessor, WasmiPreprocessor};
+use wasm_prep::WasmiPreprocessor;
 
 pub mod ipc;
 pub mod ipc_grpc;
@@ -84,8 +84,37 @@ impl<R: DbReader, H: History<R>> ipc_grpc::ExecutionEngineService for EngineStat
         // TODO: don't unwrap
         let prestate_hash: Blake2bHash = p.get_parent_state_hash().try_into().unwrap();
         let deploys = p.get_deploys();
-        let deploys_result: Result<Vec<DeployResult>, RootNotFound> =
-            run_deploys(&self, &executor, &preprocessor, prestate_hash, deploys);
+        // We want to treat RootNotFound error differently b/c it should short-circuit
+        // the execution of ALL deploys within the block. This is because all of them share
+        // the same prestate and all of them would fail.
+        // Iterator (Result<_, _> + collect()) will short circuit the execution
+        // when run_deploy returns Err.
+        let deploys_result: Result<Vec<DeployResult>, RootNotFound> = deploys
+            .iter()
+            .map(|deploy| {
+                let module_bytes = &deploy.session_code;
+                let address: [u8; 20] = {
+                    let mut tmp = [0u8; 20];
+                    tmp.copy_from_slice(&deploy.address);
+                    tmp
+                };
+                let timestamp = deploy.timestamp;
+                let nonce = deploy.nonce;
+                let gas_limit = deploy.gas_limit as u64;
+                self.run_deploy(
+                    module_bytes,
+                    address,
+                    timestamp,
+                    nonce,
+                    prestate_hash,
+                    gas_limit,
+                    &executor,
+                    &preprocessor,
+                )
+                .map(Into::into)
+                .map_err(Into::into)
+            })
+            .collect();
         let mut exec_response = ipc::ExecResponse::new();
         match deploys_result {
             Ok(deploy_results) => {
@@ -125,47 +154,6 @@ impl<R: DbReader, H: History<R>> ipc_grpc::ExecutionEngineService for EngineStat
             }
         }
     }
-}
-
-fn run_deploys<A, R: DbReader, H: History<R>, E: Executor<A>, P: Preprocessor<A>>(
-    engine_state: &EngineState<R, H>,
-    executor: &E,
-    preprocessor: &P,
-    prestate_hash: Blake2bHash,
-    deploys: &[ipc::Deploy],
-) -> Result<Vec<DeployResult>, RootNotFound> {
-    // We want to treat RootNotFound error differently b/c it should short-circuit
-    // the execution of ALL deploys within the block. This is because all of them share
-    // the same prestate and all of them would fail.
-    // Iterator (Result<_, _> + collect()) will short circuit the execution
-    // when run_deploy returns Err.
-    deploys
-        .iter()
-        .map(|deploy| {
-            let module_bytes = &deploy.session_code;
-            let address: [u8; 20] = {
-                let mut tmp = [0u8; 20];
-                tmp.copy_from_slice(&deploy.address);
-                tmp
-            };
-            let timestamp = deploy.timestamp;
-            let nonce = deploy.nonce;
-            let gas_limit = deploy.gas_limit as u64;
-            engine_state
-                .run_deploy(
-                    module_bytes,
-                    address,
-                    timestamp,
-                    nonce,
-                    prestate_hash,
-                    gas_limit,
-                    executor,
-                    preprocessor,
-                )
-                .map(Into::into)
-                .map_err(Into::into)
-        })
-        .collect()
 }
 
 // Helper method which returns single DeployResult that is set to be a WasmError.
