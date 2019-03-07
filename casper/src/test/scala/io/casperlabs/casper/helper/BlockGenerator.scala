@@ -139,7 +139,7 @@ object BlockGenerator {
       deployResults: Seq[DeployResult],
       computedPreStateHash: StateHash,
       time: Option[Long],
-      deploys: Seq[protocol.Deploy]
+      deploys: Seq[DeployData]
   ): F[Either[BlockException, Option[StateHash]]] =
     if (preStateHash == computedPreStateHash) {
       processPreStateHash[F](
@@ -163,7 +163,7 @@ object BlockGenerator {
       processedDeploys: Seq[DeployResult],
       possiblePreStateHash: StateHash,
       time: Option[Long],
-      deploys: Seq[protocol.Deploy]
+      deploys: Seq[DeployData]
   ): F[Either[BlockException, Option[StateHash]]] = {
     val deployLookup     = processedDeploys.zip(deploys).toMap
     val commutingEffects = findCommutingEffects(processedDeploys)

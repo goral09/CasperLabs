@@ -13,8 +13,8 @@ import io.casperlabs.casper.protocol._
 import io.casperlabs.casper.util.ProtoUtil.{blockHeader, unsignedBlockProto}
 import io.casperlabs.casper.util.Sorting
 import io.casperlabs.casper.util.execengine.ExecEngineUtil
+import io.casperlabs.casper.util.rholang.RuntimeManager
 import io.casperlabs.casper.util.rholang.RuntimeManager.StateHash
-import io.casperlabs.casper.util.rholang.{ProcessedDeployUtil, RuntimeManager}
 import io.casperlabs.crypto.codec.Base16
 import io.casperlabs.crypto.signatures.Ed25519
 import io.casperlabs.ipc
@@ -35,7 +35,7 @@ object Genesis {
       posParams: ProofOfStakeParams,
       wallets: Seq[PreWallet],
       faucetCode: String => String
-  ): List[Deploy] =
+  ): List[DeployData] =
     List()
 
   def withContracts[F[_]: Concurrent: Log: ExecutionEngineService](
@@ -55,7 +55,7 @@ object Genesis {
     )
 
   def withContracts[F[_]: Concurrent: Log: ExecutionEngineService](
-      blessedTerms: List[Deploy],
+      blessedTerms: List[DeployData],
       initial: BlockMessage,
       startHash: StateHash,
       runtimeManager: RuntimeManager[F]

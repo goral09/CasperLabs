@@ -323,7 +323,7 @@ class ExecEngineUtilTest
 
   def computeSingleProcessedDeploy[F[_]: ExecutionEngineService](
       dag: BlockDagRepresentation[Task],
-      deploy: Deploy*
+      deploy: DeployData*
   )(implicit blockStore: BlockStore[Task]): Task[Seq[ProcessedDeploy]] =
     for {
       computeResult <- ExecEngineUtil
