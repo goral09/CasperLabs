@@ -9,6 +9,15 @@ Global / conflictManager := ConflictManager.strict
 //resolve all version conflicts explicitly
 Global / dependencyOverrides := Dependencies.overrides
 
+// Keeping all the .proto definitions in a common place so we can use `include` to factor out common messages.
+val protobufDirectory = file("protobuf")
+def protobufSubDirectoryFilter(subdirs: String*) = {
+  import java.nio.file.Paths // Handle backslash on Windows.
+  (f: File) =>
+    f.getName.endsWith(".proto") && // Not directories or other artifacts.
+    subdirs.map(Paths.get(_)).exists(p => f.toPath.getParent.endsWith(p))
+}
+
 lazy val projectSettings = Seq(
   organization := "io.casperlabs",
   scalaVersion := "2.12.7",
@@ -127,6 +136,10 @@ lazy val comm = (project in file("comm"))
       monix,
       guava
     ),
+    PB.protoSources in Compile := Seq(protobufDirectory),
+    includeFilter in PB.generate := new SimpleFileFilter(
+      protobufSubDirectoryFilter(
+        "io/casperlabs/comm/discovery")),
     PB.targets in Compile := Seq(
       PB.gens.java                              -> (sourceManaged in Compile).value,
       scalapb.gen(javaConversions = true)       -> (sourceManaged in Compile).value,
@@ -162,6 +175,15 @@ lazy val models = (project in file("models"))
       scalacheck,
       scalapbRuntimegGrpc
     ),
+    // TODO: As we refactor the interfaces this project should only depend on consensus
+    // related models, ones that get stored, passed to client. The client for example
+    // shouldn't transitively depend on node-to-node and node-to-EE interfaces.
+    PB.protoSources in Compile := Seq(protobufDirectory),
+    includeFilter in PB.generate := new SimpleFileFilter(
+      protobufSubDirectoryFilter(
+        "io/casperlabs/casper/protocol",
+        "io/casperlabs/comm/protocol/routing",
+        "io/casperlabs/ipc")),
     PB.targets in Compile := Seq(
       scalapb.gen(flatPackage = true) -> (sourceManaged in Compile).value,
       grpcmonix.generators
@@ -194,6 +216,10 @@ lazy val node = (project in file("node"))
         scalapbRuntimegGrpc,
         tomlScala
       ),
+    PB.protoSources in Compile := Seq(protobufDirectory),
+    includeFilter in PB.generate := new SimpleFileFilter(
+      protobufSubDirectoryFilter(
+        "io/casperlabs/node/model")),
     PB.targets in Compile := Seq(
       PB.gens.java                              -> (sourceManaged in Compile).value / "protobuf",
       scalapb.gen(javaConversions = true)       -> (sourceManaged in Compile).value / "protobuf",
